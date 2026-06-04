@@ -1,11 +1,9 @@
 """
-RAG: load PDFs/text from knowledge/, chunk, store in local Chroma vector DB.
+RAG: load PDFs/text from knowledge/, chunk, store in Chroma when available.
+Falls back to simple keyword search if Chroma fails (e.g. Python 3.14 on Streamlit Cloud).
 """
 
 from pathlib import Path
-
-import chromadb
-from chromadb.utils import embedding_functions
 
 KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
 PDF_DIR = KNOWLEDGE_DIR / "pdfs"
@@ -15,12 +13,32 @@ COLLECTION_NAME = "health_nutrition"
 CHUNK_SIZE = 600
 CHUNK_OVERLAP = 80
 
+_chroma_available: bool | None = None
+
+
+def _chromadb_ready() -> bool:
+    global _chroma_available
+    if _chroma_available is not None:
+        return _chroma_available
+    try:
+        import chromadb  # noqa: F401
+        from chromadb.utils import embedding_functions  # noqa: F401
+
+        _chroma_available = True
+    except Exception:
+        _chroma_available = False
+    return _chroma_available
+
 
 def _default_ef():
+    from chromadb.utils import embedding_functions
+
     return embedding_functions.DefaultEmbeddingFunction()
 
 
 def get_collection():
+    import chromadb
+
     CHROMA_DIR.mkdir(parents=True, exist_ok=True)
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     return client.get_or_create_collection(
@@ -50,7 +68,6 @@ def _read_pdf(path: Path) -> str:
 
 
 def _gather_documents() -> list[tuple[str, str, str]]:
-    """Returns list of (doc_id, text, source_label)."""
     docs: list[tuple[str, str, str]] = []
     PDF_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -71,8 +88,56 @@ def _gather_documents() -> list[tuple[str, str, str]]:
     return docs
 
 
+def _load_all_chunks() -> list[dict]:
+    chunks = []
+    for doc_id, text, source in _gather_documents():
+        for i, part in enumerate(_chunk_text(text)):
+            chunks.append({"text": part, "source": source, "doc": doc_id, "id": f"{doc_id}_{i}"})
+    return chunks
+
+
+def _fallback_search(query: str, n_results: int = 4) -> list[dict]:
+    """Keyword overlap search when Chroma is unavailable."""
+    words = [w.lower() for w in query.split() if len(w) > 2]
+    if not words:
+        words = [query.lower()]
+
+    scored = []
+    for chunk in _load_all_chunks():
+        text_lower = chunk["text"].lower()
+        score = sum(1 for w in words if w in text_lower)
+        if score > 0:
+            scored.append((score, chunk))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for score, chunk in scored[:n_results]:
+        out.append(
+            {
+                "text": chunk["text"],
+                "source": chunk["source"],
+                "distance": 1.0 / (score + 1),
+            }
+        )
+    if not out and scored == []:
+        for chunk in _load_all_chunks()[:n_results]:
+            out.append(
+                {
+                    "text": chunk["text"],
+                    "source": chunk["source"],
+                    "distance": None,
+                }
+            )
+    return out
+
+
 def ingest(reset: bool = False) -> int:
-    """Index all PDFs in knowledge/pdfs/ and .txt in knowledge/. Returns chunk count."""
+    if not _chromadb_ready():
+        print("Chroma not available; using file-based fallback search only.")
+        return len(_load_all_chunks())
+
+    import chromadb
+
     collection = get_collection()
     if reset:
         client = chromadb.PersistentClient(path=str(CHROMA_DIR))
@@ -102,29 +167,38 @@ def ingest(reset: bool = False) -> int:
 
 
 def search(query: str, n_results: int = 4) -> list[dict]:
-    """Return top chunks: text, source, distance."""
-    collection = get_collection()
-    if collection.count() == 0:
-        ingest()
+    if not _chromadb_ready():
+        return _fallback_search(query, n_results)
 
-    if collection.count() == 0:
-        return []
+    try:
+        collection = get_collection()
+        if collection.count() == 0:
+            ingest()
 
-    results = collection.query(query_texts=[query], n_results=min(n_results, collection.count()))
-    out = []
-    for doc, meta, dist in zip(
-        results["documents"][0],
-        results["metadatas"][0],
-        results["distances"][0],
-    ):
-        out.append(
-            {
-                "text": doc,
-                "source": meta.get("source", "unknown"),
-                "distance": dist,
-            }
+        if collection.count() == 0:
+            return _fallback_search(query, n_results)
+
+        results = collection.query(
+            query_texts=[query],
+            n_results=min(n_results, collection.count()),
         )
-    return out
+        out = []
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+        ):
+            out.append(
+                {
+                    "text": doc,
+                    "source": meta.get("source", "unknown"),
+                    "distance": dist,
+                }
+            )
+        return out
+    except Exception as e:
+        print(f"Chroma search failed ({e}); using fallback.")
+        return _fallback_search(query, n_results)
 
 
 if __name__ == "__main__":

@@ -7,9 +7,6 @@ from db import get_connection
 # SQL helpers (shared with lama_agent)
 from lama_agent import clean_sql, is_read_only_sql, run_sql
 
-from rag import search as rag_search
-
-
 def list_schema() -> str:
     return AGENT_SCHEMA
 
@@ -53,6 +50,8 @@ def query_database(sql: str) -> dict:
 
 
 def search_health_knowledge(query: str, n_results: int = 4) -> dict:
+    from rag import search as rag_search
+
     chunks = rag_search(query, n_results=n_results)
     return {
         "query": query,
