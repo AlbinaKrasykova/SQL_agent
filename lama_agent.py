@@ -3,17 +3,9 @@ import re
 import ollama
 
 from db import get_connection
+from schema import AGENT_SCHEMA, init_database
 
 MODEL = "qwen2.5"  # must match `ollama list` (e.g. qwen2.5:latest)
-
-SCHEMA = """
-Table: health_logs
-
-Columns:
-timestamp, heart_rate, hrv, sleep_hours, steps,
-calories_burned, mood, energy, stress,
-calories_intake, caffeine_mg, meal_type
-"""
 
 
 def clean_sql(sql: str) -> str:
@@ -38,16 +30,19 @@ def generate_sql(question: str, error_hint: str | None = None) -> str:
     prompt = f"""
 You are a SQL expert for SQLite.
 
-Convert the question into one SELECT query on table health_logs.
+Convert the question into one SELECT query using only the tables below.
 
 RULES:
-- Return ONLY the SQL statement (no markdown, no explanation)
-- Use only these columns: timestamp, heart_rate, hrv, sleep_hours, steps,
-  calories_burned, mood, energy, stress, calories_intake, caffeine_mg, meal_type
+- Return ONLY SQL (no markdown, no explanation)
 - SELECT queries only
+- Use only tables and columns from the schema
+- For mood or food over time, use mood_logs or food_logs
+- For steps, sleep, heart rate by day, use wearable_daily
+- For "today", filter with date(logged_at) = date('now') or date = date('now')
+- To compare mood and food on the same day, JOIN on date(logged_at) = date(food_logs.logged_at)
 {extra}
 Schema:
-{SCHEMA}
+{AGENT_SCHEMA}
 
 Question:
 {question}
@@ -68,34 +63,59 @@ def run_sql(sql: str):
     cursor = conn.cursor()
     try:
         cursor.execute(sql)
-        return cursor.fetchall()
+        columns = [d[0] for d in cursor.description] if cursor.description else []
+        rows = cursor.fetchall()
+        return columns, rows
     finally:
         conn.close()
 
 
-def ask(question: str, max_retries: int = 1):
-    print("\nQuestion:", question)
+def ask(question: str, max_retries: int = 1) -> dict:
+    """
+    Returns {"question", "sql", "columns", "rows", "error"} for UI or CLI.
+    """
+    init_database(seed_wearable=False)
 
     sql = clean_sql(generate_sql(question))
-    print("\nGenerated SQL:\n", sql)
-
     last_error = None
+
     for attempt in range(max_retries + 1):
         try:
-            results = run_sql(sql)
-            print("\nResults:")
-            for row in results:
-                print(row)
-            return results
+            columns, rows = run_sql(sql)
+            return {
+                "question": question,
+                "sql": sql,
+                "columns": columns,
+                "rows": rows,
+                "error": None,
+            }
         except Exception as e:
             last_error = str(e)
-            print("SQL Error:", e)
             if attempt >= max_retries:
                 break
             sql = clean_sql(generate_sql(question, error_hint=last_error))
-            print("\nRetry SQL:\n", sql)
 
-    return None
+    return {
+        "question": question,
+        "sql": sql,
+        "columns": [],
+        "rows": [],
+        "error": last_error,
+    }
+
+
+def ask_cli(question: str, max_retries: int = 1):
+    init_database()
+    print("\nQuestion:", question)
+    result = ask(question, max_retries=max_retries)
+    print("\nGenerated SQL:\n", result["sql"])
+    if result["error"]:
+        print("SQL Error:", result["error"])
+        return None
+    print("\nResults:")
+    for row in result["rows"]:
+        print(row)
+    return result["rows"]
 
 
 if __name__ == "__main__":
@@ -103,4 +123,4 @@ if __name__ == "__main__":
         q = input("\nAsk your health data (empty to quit): ").strip()
         if not q:
             break
-        ask(q)
+        ask_cli(q)
