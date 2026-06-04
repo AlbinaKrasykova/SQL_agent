@@ -144,6 +144,16 @@ python ingest_knowledge.py
 
 ---
 
+## Share a public link
+
+Deploy free on **Streamlit Community Cloud** so anyone can open your app in a browser.
+
+See **[DEPLOY.md](DEPLOY.md)** for step-by-step: push to GitHub → [share.streamlit.io](https://share.streamlit.io) → set main file to `app.py` → share `https://your-app.streamlit.app`.
+
+Public hosting uses **demo agent** (no Ollama). Full AI runs on your Mac with Ollama installed.
+
+---
+
 ## Run
 
 ### Streamlit (main app)

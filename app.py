@@ -7,6 +7,7 @@ import streamlit as st
 
 from db import get_connection
 from agent import run as agent_run
+from deploy_utils import is_streamlit_cloud, ollama_is_available, ensure_knowledge_indexed, seed_demo_logs_if_empty
 from schema import init_database
 
 # ---------------------------------------------------------------------------
@@ -70,7 +71,13 @@ EXAMPLE_QUESTIONS = [
 
 
 def ensure_tables():
-    init_database(seed_wearable=True, quiet=True)
+    try:
+        init_database(seed_wearable=True, quiet=True)
+    except TypeError:
+        init_database(seed_wearable=True)
+    seed_demo_logs_if_empty()
+    if is_streamlit_cloud():
+        ensure_knowledge_indexed()
 
 
 def insert_mood(mood: int, energy: int, stress: int, note: str | None):
@@ -157,6 +164,11 @@ def load_wearable_df(limit: int = 14) -> pd.DataFrame:
 
 def render_ask_panel():
     st.subheader("Ask your data")
+    if not ollama_is_available():
+        st.info(
+            "Demo mode: this server has no Ollama. The app still answers using "
+            "your logs + the health knowledge library. Run locally with Ollama for full AI."
+        )
     st.caption(
         "Agent uses your SQLite logs (SQL tools) and nutrition/hormone PDFs (RAG). "
         "Add PDFs to knowledge/pdfs/ then run: python ingest_knowledge.py"
@@ -369,6 +381,13 @@ def page_nutrition():
 # ---------------------------------------------------------------------------
 
 ensure_tables()
+
+if is_streamlit_cloud():
+    st.sidebar.success("Public demo — log mood/food and try Ask agent.")
+elif ollama_is_available():
+    st.sidebar.caption("Full agent: Ollama connected.")
+else:
+    st.sidebar.warning("Start Ollama for full AI, or use demo answers.")
 
 # Sidebar header (above navigation)
 st.sidebar.image("assets/health_diary_concept.png", width="stretch")

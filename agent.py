@@ -7,6 +7,8 @@ import re
 
 import ollama
 
+from demo_agent import run_demo
+from deploy_utils import ollama_is_available
 from schema import init_database
 from tools import TOOL_SPECS, run_tool
 
@@ -82,6 +84,12 @@ def run(
     """
     init_database(seed_wearable=False, quiet=True)
 
+    if not ollama_is_available():
+        result = run_demo(question)
+        if messages is not None:
+            result["messages"] = messages
+        return result
+
     if messages is None:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + _tool_catalog_text()},
@@ -91,7 +99,16 @@ def run(
     steps = []
 
     for _ in range(max_steps):
-        response = ollama.chat(model=MODEL, messages=messages)
+        try:
+            response = ollama.chat(model=MODEL, messages=messages)
+        except Exception as e:
+            return {
+                "question": question,
+                "answer": None,
+                "steps": steps,
+                "messages": messages,
+                "error": f"Ollama error: {e}. Start Ollama locally or use demo hosting.",
+            }
         content = response["message"]["content"]
         answer, tool_call = parse_response(content)
 
