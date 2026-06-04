@@ -101,13 +101,15 @@ SQL_agent/
 ├── db.py                   # SQLite connection
 ├── rag.py                  # Chroma ingest + search
 ├── ingest_knowledge.py     # Index PDFs/text into vector DB
+├── demo_agent.py           # Fallback agent without Ollama (cloud deploy)
+├── deploy_utils.py         # Cloud demo helpers
 ├── knowledge/
 │   ├── pdfs/               # Drop your health PDFs here
 │   ├── *.txt               # Optional plain-text sources
 │   └── sample_hormones_nutrition.txt
 ├── data/chroma/            # Vector store (gitignored)
 ├── assets/                 # UI images
-├── health.db               # Your diary (gitignored by default)
+├── DEPLOY.md               # Streamlit Cloud instructions
 └── requirements.txt
 ```
 
@@ -116,7 +118,7 @@ SQL_agent/
 ## Prerequisites
 
 - **Python 3.10+**
-- **[Ollama](https://ollama.com)** running locally
+- **[Ollama](https://ollama.com)** running locally (full AI; optional for cloud demo)
 - Model:
 
   ```bash
@@ -128,17 +130,14 @@ SQL_agent/
 ## Setup
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/AlbinaKrasykova/SQL_agent.git
 cd SQL_agent
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Create tables + seed demo wearable rows if empty
 python schema.py
-
-# Index health knowledge (sample .txt included)
 python ingest_knowledge.py
 ```
 
@@ -148,7 +147,7 @@ python ingest_knowledge.py
 
 Deploy free on **Streamlit Community Cloud** so anyone can open your app in a browser.
 
-See **[DEPLOY.md](DEPLOY.md)** for step-by-step: push to GitHub → [share.streamlit.io](https://share.streamlit.io) → set main file to `app.py` → share `https://your-app.streamlit.app`.
+See **[DEPLOY.md](DEPLOY.md)** for step-by-step: push to GitHub → [share.streamlit.io](https://share.streamlit.io) → main file `app.py`.
 
 Public hosting uses **demo agent** (no Ollama). Full AI runs on your Mac with Ollama installed.
 
@@ -165,24 +164,17 @@ streamlit run app.py
 
 Open **http://localhost:8501**
 
-- **Overview** — metrics, charts, **Ask agent**
-- **Log mood** / **Log nutrition** — saves to `health.db`
-- Sidebar — diary branding image
-
-### Terminal (SQL-only, no RAG loop)
+### Terminal (SQL-only)
 
 ```bash
 python lama_agent.py
 ```
 
-### Re-index PDFs after adding files
+### Re-index PDFs
 
 ```bash
-# Add files to knowledge/pdfs/ or knowledge/*.txt
 python ingest_knowledge.py
-
-# Full rebuild
-python ingest_knowledge.py --reset
+python ingest_knowledge.py --reset   # full rebuild
 ```
 
 ---
@@ -194,45 +186,6 @@ python ingest_knowledge.py --reset
 | What did I eat today? | `query_database` |
 | What is my average mood? | `query_database` |
 | How does caffeine affect cortisol? | `search_health_knowledge` |
-| I feel stressed and had coffee — any connection? | RAG + optional SQL on your logs |
-
-Use **Clear chat** on Overview to reset session memory.
-
----
-
-## How the agent loop works
-
-1. Your question is appended to **short-term memory** (`agent_messages` in Streamlit).
-2. **Ollama** replies with either:
-   - `{"tool": "...", "args": {...}}` — run a tool in `tools.py`, send result back, or
-   - `ANSWER: ...` — final plain-English reply.
-3. Loop runs up to **5 steps** (e.g. schema → SQL → answer, or RAG → answer).
-4. UI shows the answer and expandable **tool steps** (SQL, RAG sources).
-
-**Safety:** `query_database` only allows read-only `SELECT` queries.
-
----
-
-## RAG (vector database)
-
-| Step | What happens |
-|------|----------------|
-| **Ingest** | PDFs/text → chunks → embeddings → Chroma in `data/chroma/` |
-| **Search** | User question → top similar chunks → passed to the LLM |
-| **Recommend** | Model summarizes chunks (not a substitute for clinical advice) |
-
-Embedding model: Chroma default (`all-MiniLM-L6-v2`, downloaded on first ingest).
-
----
-
-## Configuration
-
-| Setting | File |
-|---------|------|
-| Ollama model | `MODEL` in `agent.py` / `lama_agent.py` |
-| Tables & agent schema | `TABLES` in `schema.py` |
-| Chunk size / collection | `rag.py` |
-| Max agent steps | `MAX_STEPS` in `agent.py` |
 
 ---
 
@@ -242,18 +195,8 @@ Embedding model: Chroma default (`all-MiniLM-L6-v2`, downloaded on first ingest)
 |---------|-----|
 | `No module named 'ollama'` | `source .venv/bin/activate` && `pip install -r requirements.txt` |
 | Model not found | `ollama pull qwen2.5` |
-| Agent returns no RAG results | Run `python ingest_knowledge.py`; add files under `knowledge/` |
-| Empty personal answers | Log mood/food in Streamlit first |
-| Streamlit won't start | Use `.venv/bin/streamlit run app.py` |
-
----
-
-## Roadmap
-
-- [ ] Apple Health / wearable CSV import into `wearable_daily`
-- [ ] Long-term memory table (preferences, weekly summaries)
-- [ ] Stronger tool-calling format for smaller models
-- [ ] Optional natural-language-only mode without showing SQL
+| Agent returns no RAG results | Run `python ingest_knowledge.py` |
+| Streamlit won't start | `.venv/bin/streamlit run app.py` |
 
 ---
 
