@@ -80,7 +80,7 @@ def run(
     Returns:
       answer, steps (tool trace), messages (updated short memory), error
     """
-    init_database(seed_wearable=False)
+    init_database(seed_wearable=False, quiet=True)
 
     if messages is None:
         messages = [

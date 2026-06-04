@@ -39,7 +39,7 @@ def today_summary() -> dict:
 
 
 def query_database(sql: str) -> dict:
-    init_database(seed_wearable=False)
+    init_database(seed_wearable=False, quiet=True)
     sql = clean_sql(sql)
     if not is_read_only_sql(sql):
         raise ValueError("Only read-only SELECT queries are allowed.")

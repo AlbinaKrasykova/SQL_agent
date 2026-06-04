@@ -161,14 +161,15 @@ def seed_fake_wearable_if_empty() -> int:
         conn.close()
 
 
-def init_database(seed_wearable: bool = True) -> None:
+def init_database(seed_wearable: bool = True, quiet: bool = False) -> None:
     conn = get_connection()
     conn.executescript(SCHEMA_DDL)
     conn.commit()
     conn.close()
     if seed_wearable:
         seed_fake_wearable_if_empty()
-    print(f"Tables ready in {Path(DB_NAME).resolve()}")
+    if not quiet:
+        print(f"Tables ready in {Path(DB_NAME).resolve()}")
 
 
 if __name__ == "__main__":

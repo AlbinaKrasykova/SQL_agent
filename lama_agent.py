@@ -74,7 +74,7 @@ def ask(question: str, max_retries: int = 1) -> dict:
     """
     Returns {"question", "sql", "columns", "rows", "error"} for UI or CLI.
     """
-    init_database(seed_wearable=False)
+    init_database(seed_wearable=False, quiet=True)
 
     sql = clean_sql(generate_sql(question))
     last_error = None

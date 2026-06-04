@@ -1,81 +1,91 @@
-# SQL Agent — Ask Your Health Data in Plain English
+# Health Diary + SQL Agent
 
-A small **text-to-SQL** project: you type a question like *“What is my highest HRV?”* and a **local AI** (Ollama) turns it into SQL, runs it on your SQLite database, and prints the answer.
+A **local-first health tracking app** with a minimalist Streamlit UI, a SQLite diary for mood and nutrition, demo wearable metrics, and an **Ollama-powered agent** that answers questions about *your data* (SQL) and *general health knowledge* (RAG from PDFs).
 
-Everything runs on your Mac — no cloud API keys required for the LLM step.
+No cloud API keys required. Everything runs on your machine: **Ollama**, **SQLite**, and **Chroma** for vector search.
+
+> Learning project — not medical advice. General nutrition text from RAG does not replace a doctor or dietitian.
 
 ---
 
-## What this project does (in simple terms)
+## What it does
 
-1. **Build a fake health dataset** — heart rate, sleep, steps, mood, caffeine, and more (300 sample rows).
-2. **Store it in SQLite** — one table called `health_logs`, easy to query.
-3. **Chat with your data** — the agent sends your question + table schema to Ollama, gets back SQL, cleans it, checks it is read-only, runs it, and shows rows.
-4. **Explore patterns manually** — `analysis.py` runs fixed SQL to compare sleep, mood, caffeine, and stress.
-
-This is a learning prototype for **natural language → SQL → database**, not a medical product.
+| Feature | Description |
+|---------|-------------|
+| **Log mood** | Sliders for mood, energy, stress; optional note → `mood_logs` |
+| **Log nutrition** | Meals, calories, caffeine, description → `food_logs` |
+| **Demo wearable** | Daily steps, sleep, heart rate in `wearable_daily` (seeded from sample data until Apple Health import) |
+| **Ask agent** | Natural-language questions on Overview: combines SQL on your logs + RAG on health PDFs |
+| **Short memory** | Follow-up questions in the same Streamlit session |
+| **CLI agent** | `python lama_agent.py` for simple SQL-only Q&A in the terminal |
 
 ---
 
 ## System design
 
-High-level flow: **you ask → LLM writes SQL → safety check → SQLite → results**.
-
 ```mermaid
 flowchart TB
-    subgraph User
-        Q[Plain English question]
+    subgraph UI["Streamlit app.py"]
+        M[Log mood / Log nutrition]
+        A[Ask agent]
     end
 
-    subgraph Agent["lama_agent.py"]
-        P[Build prompt with schema + rules]
-        G[Ollama: generate SQL]
-        C[Clean markdown from SQL]
-        V{Read-only SELECT?}
-        R[Retry with DB error hint]
+    subgraph Agent["agent.py"]
+        Loop[Plan → tool → observe → answer]
     end
 
-    subgraph Local["Your machine"]
-        O[(Ollama + qwen2.5)]
-        DB[(SQLite health.db)]
+    subgraph Tools["tools.py"]
+        T1[today_summary]
+        T2[query_database]
+        T3[search_health_knowledge]
     end
 
-    Q --> P --> G
-    G <--> O
-    G --> C --> V
-    V -->|no| X[Reject unsafe SQL]
-    V -->|yes| DB
-    DB -->|error| R --> G
-    DB -->|rows| OUT[Print results]
+    subgraph Storage
+        SQL[(SQLite health.db)]
+        VEC[(Chroma data/chroma)]
+    end
+
+    subgraph LLM["Local Ollama qwen2.5"]
+        O[Chat + tool routing]
+    end
+
+    subgraph Knowledge
+        PDF[knowledge/pdfs/*.pdf]
+        TXT[knowledge/*.txt]
+    end
+
+    M --> SQL
+    A --> Loop
+    Loop <--> O
+    Loop --> T1 & T2 & T3
+    T1 --> SQL
+    T2 --> SQL
+    T3 --> VEC
+    PDF --> VEC
+    TXT --> VEC
+    Loop --> A
 ```
 
-### Components
+### Two kinds of answers
 
-| Piece | File | Role |
-|--------|------|------|
-| **Database layer** | `db.py` | Opens `health.db` — single place for DB path |
-| **Seed data** | `setup_health_db.py` | Creates `health_logs` and inserts 300 random rows |
-| **SQL agent** | `lama_agent.py` | Ollama chat → SQL → validate → execute → optional retry |
-| **Exploratory SQL** | `analysis.py` | Hand-written queries (sleep vs mood, caffeine vs stress) |
-| **Smoke test** | `test_query.py` | Prints first 5 rows to confirm DB works |
+1. **Personal data** — Agent runs read-only `SELECT` on `mood_logs`, `food_logs`, `wearable_daily` (e.g. *What did I eat today?*).
+2. **General knowledge (RAG)** — Agent searches embedded chunks from your PDFs/text (e.g. *How does caffeine affect cortisol?*).
 
-### Data model
+The model can use **both** in one conversation (e.g. your caffeine logs + hormone education snippets).
 
-One table tracks wearable, behavior, and nutrition fields per timestamp:
+---
 
-```
-health_logs
-├── id, user_id, timestamp
-├── heart_rate, hrv, sleep_hours, steps, calories_burned   (wearable)
-├── mood, energy, stress                                   (behavior)
-└── calories_intake, caffeine_mg, meal_type                (nutrition)
-```
+## Data model
 
-### Safety choices (prototype level)
+Defined once in **`schema.py`** (DDL + agent prompt text stay in sync).
 
-- Only **SELECT** queries are allowed (blocks `DELETE`, `DROP`, etc.).
-- Schema is sent in the prompt so the model stays on known columns.
-- If SQL fails, the agent **retries once** and passes the error message back to the model.
+| Table | Source | Contents |
+|-------|--------|----------|
+| `mood_logs` | Streamlit | `logged_at`, mood, energy, stress, note |
+| `food_logs` | Streamlit | `logged_at`, meal_type, calories, caffeine_mg, description |
+| `wearable_daily` | Demo seed / future import | One row per day: steps, sleep_hours, hr_avg, hrv_avg, calories_burned |
+
+Legacy table `health_logs` may still exist in old databases; the agent uses the three tables above.
 
 ---
 
@@ -83,14 +93,22 @@ health_logs
 
 ```
 SQL_agent/
-├── db.py                 # SQLite connection helper
-├── setup_health_db.py    # Create DB + sample data
-├── lama_agent.py         # Main NL → SQL agent (Ollama)
-├── analysis.py           # Example analytics queries
-├── test_query.py         # Quick DB sanity check
-├── health.db             # SQLite database (generated locally)
-├── requirements.txt      # Python: ollama
-└── README.md
+├── app.py                  # Streamlit UI (Overview, mood, nutrition, ask agent)
+├── agent.py                # Multi-step agent loop (tools + memory)
+├── tools.py                # Tool implementations (SQL, summary, RAG)
+├── lama_agent.py           # Simple SQL-only agent (terminal)
+├── schema.py               # Single source of truth for tables + prompts
+├── db.py                   # SQLite connection
+├── rag.py                  # Chroma ingest + search
+├── ingest_knowledge.py     # Index PDFs/text into vector DB
+├── knowledge/
+│   ├── pdfs/               # Drop your health PDFs here
+│   ├── *.txt               # Optional plain-text sources
+│   └── sample_hormones_nutrition.txt
+├── data/chroma/            # Vector store (gitignored)
+├── assets/                 # UI images
+├── health.db               # Your diary (gitignored by default)
+└── requirements.txt
 ```
 
 ---
@@ -98,8 +116,8 @@ SQL_agent/
 ## Prerequisites
 
 - **Python 3.10+**
-- **[Ollama](https://ollama.com)** installed and running
-- Model pulled (this repo uses **qwen2.5**):
+- **[Ollama](https://ollama.com)** running locally
+- Model:
 
   ```bash
   ollama pull qwen2.5
@@ -117,74 +135,94 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python setup_health_db.py
+# Create tables + seed demo wearable rows if empty
+python schema.py
+
+# Index health knowledge (sample .txt included)
+python ingest_knowledge.py
 ```
 
 ---
 
-## Run the agent
+## Run
+
+### Streamlit (main app)
 
 ```bash
 source .venv/bin/activate
+streamlit run app.py
+```
+
+Open **http://localhost:8501**
+
+- **Overview** — metrics, charts, **Ask agent**
+- **Log mood** / **Log nutrition** — saves to `health.db`
+- Sidebar — diary branding image
+
+### Terminal (SQL-only, no RAG loop)
+
+```bash
 python lama_agent.py
 ```
 
-Or without activating the venv:
+### Re-index PDFs after adding files
 
 ```bash
-.venv/bin/python lama_agent.py
+# Add files to knowledge/pdfs/ or knowledge/*.txt
+python ingest_knowledge.py
+
+# Full rebuild
+python ingest_knowledge.py --reset
 ```
 
-### Example questions
+---
 
-| You type | What happens |
+## Example questions
+
+| Question | Typical tools |
 |----------|----------------|
-| `What is my average heart rate?` | `AVG(heart_rate)` |
-| `What is my highest HRV?` | `MAX(hrv)` |
-| `How many rows are in health_logs?` | `COUNT(*)` |
+| What did I eat today? | `query_database` |
+| What is my average mood? | `query_database` |
+| How does caffeine affect cortisol? | `search_health_knowledge` |
+| I feel stressed and had coffee — any connection? | RAG + optional SQL on your logs |
 
-The agent prints the generated SQL and the result rows.
-
-### Other scripts
-
-```bash
-python test_query.py      # first 5 rows
-python analysis.py        # sleep/mood/caffeine/stress summaries
-```
+Use **Clear chat** on Overview to reset session memory.
 
 ---
 
-## How the agent works (step by step)
+## How the agent loop works
 
-1. You enter a question in the terminal loop.
-2. `generate_sql()` sends the question + `health_logs` schema + rules to **Ollama**.
-3. `clean_sql()` removes markdown code fences (models often wrap SQL in ` ```sql `).
-4. `is_read_only_sql()` ensures the query is a safe **SELECT**.
-5. `run_sql()` executes against `health.db` via `db.get_connection()`.
-6. On error, one **retry** asks the model to fix SQL using the SQLite error text.
+1. Your question is appended to **short-term memory** (`agent_messages` in Streamlit).
+2. **Ollama** replies with either:
+   - `{"tool": "...", "args": {...}}` — run a tool in `tools.py`, send result back, or
+   - `ANSWER: ...` — final plain-English reply.
+3. Loop runs up to **5 steps** (e.g. schema → SQL → answer, or RAG → answer).
+4. UI shows the answer and expandable **tool steps** (SQL, RAG sources).
 
----
-
-## What is done so far
-
-- [x] SQLite schema and 300-row synthetic health dataset
-- [x] Shared DB module (`db.py`)
-- [x] Local LLM integration with Ollama (`qwen2.5`)
-- [x] Text-to-SQL prompt with schema grounding
-- [x] SQL cleaning, read-only guard, and error retry
-- [x] Interactive CLI for questions
-- [x] Basic exploratory analysis script
-- [x] Python virtual environment + `requirements.txt`
+**Safety:** `query_database` only allows read-only `SELECT` queries.
 
 ---
 
-## Possible next steps
+## RAG (vector database)
 
-- Natural-language **summary** of query results (second LLM call)
-- More test questions in `test_query.py` for regression checks
-- Return **timestamp** with max/min metrics (e.g. when highest HRV occurred)
-- Optional web UI (Streamlit / FastAPI) instead of terminal only
-- Real wearable import (CSV / Apple Health) instead of random seed data
+| Step | What happens |
+|------|----------------|
+| **Ingest** | PDFs/text → chunks → embeddings → Chroma in `data/chroma/` |
+| **Search** | User question → top similar chunks → passed to the LLM |
+| **Recommend** | Model summarizes chunks (not a substitute for clinical advice) |
+
+Embedding model: Chroma default (`all-MiniLM-L6-v2`, downloaded on first ingest).
+
+---
+
+## Configuration
+
+| Setting | File |
+|---------|------|
+| Ollama model | `MODEL` in `agent.py` / `lama_agent.py` |
+| Tables & agent schema | `TABLES` in `schema.py` |
+| Chunk size / collection | `rag.py` |
+| Max agent steps | `MAX_STEPS` in `agent.py` |
 
 ---
 
@@ -192,19 +230,27 @@ python analysis.py        # sleep/mood/caffeine/stress summaries
 
 | Problem | Fix |
 |---------|-----|
-| `No module named 'ollama'` | Activate `.venv` and `pip install -r requirements.txt` |
-| `command not found: python` | Use `python3` or activate the venv (then `python` works) |
-| Model not found | `ollama pull qwen2.5` or change `MODEL` in `lama_agent.py` to match `ollama list` |
-| Cannot connect to Ollama | Start the Ollama app or run `ollama serve` |
+| `No module named 'ollama'` | `source .venv/bin/activate` && `pip install -r requirements.txt` |
+| Model not found | `ollama pull qwen2.5` |
+| Agent returns no RAG results | Run `python ingest_knowledge.py`; add files under `knowledge/` |
+| Empty personal answers | Log mood/food in Streamlit first |
+| Streamlit won't start | Use `.venv/bin/streamlit run app.py` |
+
+---
+
+## Roadmap
+
+- [ ] Apple Health / wearable CSV import into `wearable_daily`
+- [ ] Long-term memory table (preferences, weekly summaries)
+- [ ] Stronger tool-calling format for smaller models
+- [ ] Optional natural-language-only mode without showing SQL
 
 ---
 
 ## License
 
-Add a license file if you plan to publish the repo (e.g. MIT).
+Add a license (e.g. MIT) when you publish the repository.
 
 ---
 
-## Author note
-
-Built as a hands-on intro to **SQL agents**: small data layer, local LLM, strict read-only queries, and a clear path to improve prompts and evaluation over time.
+Built as a hands-on stack: **diary UI → structured SQLite → tool-using agent → RAG** — all local and extensible.

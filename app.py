@@ -70,7 +70,7 @@ EXAMPLE_QUESTIONS = [
 
 
 def ensure_tables():
-    init_database(seed_wearable=True)
+    init_database(seed_wearable=True, quiet=True)
 
 
 def insert_mood(mood: int, energy: int, stress: int, note: str | None):
@@ -170,7 +170,7 @@ def render_ask_panel():
     cols = st.columns(len(EXAMPLE_QUESTIONS))
     for col, example in zip(cols, EXAMPLE_QUESTIONS):
         with col:
-            if st.button(example, use_container_width=True, key=f"ex_{example[:12]}"):
+            if st.button(example, width="stretch", key=f"ex_{example[:12]}"):
                 st.session_state["agent_q"] = example
                 st.rerun()
 
@@ -222,7 +222,7 @@ def render_ask_panel():
                 )
                 st.dataframe(
                     pd.DataFrame(r["rows"], columns=r.get("columns") or None),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
             elif step["tool"] == "search_health_knowledge":
@@ -304,7 +304,7 @@ def page_overview():
     if food_df.empty:
         st.caption("No meals logged yet.")
     else:
-        st.dataframe(food_df, use_container_width=True, hide_index=True)
+        st.dataframe(food_df, width="stretch", hide_index=True)
 
 
 def page_mood():
@@ -330,7 +330,7 @@ def page_mood():
     if df.empty:
         st.caption("No entries.")
     else:
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
 
 
 def page_nutrition():
@@ -361,7 +361,7 @@ def page_nutrition():
     if df.empty:
         st.caption("No entries.")
     else:
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +371,7 @@ def page_nutrition():
 ensure_tables()
 
 # Sidebar header (above navigation)
-st.sidebar.image("assets/health_diary_concept.png", use_container_width=True)
+st.sidebar.image("assets/health_diary_concept.png", width="stretch")
 st.sidebar.markdown("### Health Diary")
 st.sidebar.markdown(
     "A quiet place to log mood and meals, review demo wearable data, "
