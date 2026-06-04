@@ -2,6 +2,10 @@
 
 A **local-first health tracking app** with a minimalist Streamlit UI, a SQLite diary for mood and nutrition, demo wearable metrics, and an **Ollama-powered agent** that answers questions about *your data* (SQL) and *general health knowledge* (RAG from PDFs).
 
+## 🚀 Demo
+
+👉 [Click here for demo](https://healthdiary.streamlit.app/)
+
 No cloud API keys required. Everything runs on your machine: **Ollama**, **SQLite**, and **Chroma** for vector search.
 
 > Learning project — not medical advice. General nutrition text from RAG does not replace a doctor or dietitian.
