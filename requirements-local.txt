@@ -1,0 +1,3 @@
+# Optional on your Mac: full vector search with Chroma
+-r requirements.txt
+chromadb>=0.5.23,<0.6

@@ -35,7 +35,7 @@ Do **not** commit `health.db`, `.venv/`, or `data/chroma/` (listed in `.gitignor
 5. **Branch:** `main`
 6. Click **Deploy**
 
-First boot may take a few minutes (installs `chromadb`, indexes sample knowledge).
+First boot installs a small dependency set (no Chroma on Cloud). Knowledge search uses built-in text fallback from `knowledge/*.txt`.
 
 ---
 

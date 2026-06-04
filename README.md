@@ -141,6 +141,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
+# Optional on Mac: vector search with Chroma
+pip install -r requirements-local.txt
+
 python schema.py
 python ingest_knowledge.py
 ```
